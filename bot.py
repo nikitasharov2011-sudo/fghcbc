@@ -496,8 +496,19 @@ async def a_accs(c: CallbackQuery):
     cur.execute("SELECT COUNT(*) FROM accounts"); tot = cur.fetchone()[0]
     cur.execute("SELECT id,country,phone,price,status FROM accounts ORDER BY id DESC LIMIT 10 OFFSET ?", (pg*10,))
     accs = cur.fetchall()
-    if not accs: return await c.message.edit_text("📱 Пусто. Добавьте аккаунт.", reply_markup=admin_menu())
-    await c.message.edit_text(f"📱 <b>Аккаунты ({tot})</b>", reply_markup=a_accs_kb(accs, pg, tot), parse_mode="HTML")
+    
+    if not accs:
+        return await c.message.edit_text(
+            "📱 <b>Аккаунты (0)</b>\n\nПока нет аккаунтов. Добавьте первый:",
+            reply_markup=a_accs_kb([], 0, 0), 
+            parse_mode="HTML"
+        )
+    
+    await c.message.edit_text(
+        f"📱 <b>Аккаунты ({tot})</b>", 
+        reply_markup=a_accs_kb(accs, pg, tot), 
+        parse_mode="HTML"
+    )
 
 @dp.callback_query(F.data.startswith("a_acc:"))
 async def a_acc(c: CallbackQuery):
@@ -515,7 +526,11 @@ async def a_del(c: CallbackQuery):
     await c.answer("Удалён")
     cur.execute("SELECT COUNT(*) FROM accounts"); tot = cur.fetchone()[0]
     cur.execute("SELECT id,country,phone,price,status FROM accounts ORDER BY id DESC LIMIT 10 OFFSET 0")
-    await c.message.edit_text(f"📱 <b>Аккаунты ({tot})</b>\n\n🗑 Удалено", reply_markup=a_accs_kb(cur.fetchall(), 0, tot), parse_mode="HTML")
+    accs = cur.fetchall()
+    if not accs:
+        await c.message.edit_text("📱 <b>Аккаунты (0)</b>\n\n🗑 Удалено. Список пуст.", reply_markup=a_accs_kb([], 0, 0), parse_mode="HTML")
+    else:
+        await c.message.edit_text(f"📱 <b>Аккаунты ({tot})</b>\n\n🗑 Удалено", reply_markup=a_accs_kb(accs, 0, tot), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("a_edit:"))
 async def a_edit(c: CallbackQuery, state: FSMContext):
