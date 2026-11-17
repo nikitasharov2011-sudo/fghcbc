@@ -196,6 +196,13 @@ def my_orders_kb(orders):
     kb.append([InlineKeyboardButton(text="⬅️ В меню", callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+def user_order_kb(oid, status):
+    kb = []
+    if status == "number_issued":
+        kb.append([InlineKeyboardButton(text="🔑 Получить код", callback_data=f"user_get_code:{oid}")])
+    kb.append([InlineKeyboardButton(text="⬅️ В меню", callback_data="back_main")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 def admin_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="a_stats")],
@@ -425,9 +432,50 @@ async def my_order(c: CallbackQuery):
            "number_issued":"📱 Номер выдан (ждём код)","issued":"✅ Завершён","rejected":"❌ Отклонён","refunded":"↩️ Возврат"}
     text = f"🧾 <b>Заказ №{oid}</b>\n\n🌍 {a[1]}\n💰 {a[3]}₽\n📌 Статус: <b>{emo.get(o[3], o[3])}</b>"
     if a[2] and o[3] in ("number_issued","issued"): text += f"\n\n📞 Номер: <code>{a[2]}</code>"
-    kb = [[InlineKeyboardButton(text="🆘 Проблема с заказом", callback_data=f"order_problem:{oid}")],
-          [InlineKeyboardButton(text="⬅️ К заказам", callback_data="my_orders")]]
+    
+    kb = []
+    if o[3] == "number_issued":
+        kb.append([InlineKeyboardButton(text="🔑 Получить код", callback_data=f"user_get_code:{oid}")])
+    
+    kb.append([InlineKeyboardButton(text="🆘 Проблема с заказом", callback_data=f"order_problem:{oid}")])
+    kb.append([InlineKeyboardButton(text="⬅️ К заказам", callback_data="my_orders")])
+    
     await c.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("user_get_code:"))
+async def user_get_code(c: CallbackQuery):
+    oid = int(c.data.split(":")[1])
+    o = get_order(oid)
+    if not o or o[1] != c.from_user.id:
+        return await c.answer("Заказ не найден", show_alert=True)
+    if o[3] != "number_issued":
+        return await c.answer("Код уже выдан или заказ не в том статусе", show_alert=True)
+
+    acc = get_acc(o[2])
+    for adm_id,_,_ in list_admins():
+        try:
+            await bot.send_message(
+                adm_id,
+                f"🔑 <b>Клиент запрашивает код!</b>\n\n"
+                f"🧾 Заказ №{oid}\n"
+                f"🌍 {acc[1]}\n"
+                f"📞 Номер: <code>{acc[2]}</code>\n"
+                f"👤 ID клиента: <code>{c.from_user.id}</code>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔑 Выдать код", callback_data=f"a_give_code:{oid}")]
+                ]),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"user_get_code notify err: {e}")
+
+    await c.message.edit_text(
+        f"📩 <b>Запрос на код отправлен админу.</b>\n\n"
+        f"Заказ №{oid}\n"
+        f"⏳ Ожидайте, код придёт в ближайшее время.",
+        reply_markup=back_main(),
+        parse_mode="HTML"
+    )
 
 @dp.callback_query(F.data.startswith("order_problem:"))
 async def order_problem(c: CallbackQuery, state: FSMContext):
@@ -711,9 +759,17 @@ async def a_gp_save(m: Message, state: FSMContext):
     ph = m.text.strip()
     if len(ph) < 5: return await m.answer("Короткий номер")
     a = get_acc(o[2]); save_phone(a[0], ph); mark_number(oid)
-    await notify(o[1], f"📱 <b>Ваш номер готов! — {SHOP_NAME}</b>\n\n🌍 {a[1]}\n📞 <code>{ph}</code>\n\n🔑 Код придёт отдельным сообщением.", parse_mode="HTML")
+    await notify(
+        o[1],
+        f"📱 <b>Ваш номер готов! — {SHOP_NAME}</b>\n\n"
+        f"🌍 {a[1]}\n"
+        f"📞 <code>{ph}</code>\n\n"
+        f"Нажмите кнопку ниже, чтобы запросить код.",
+        reply_markup=user_order_kb(oid, "number_issued"),
+        parse_mode="HTML"
+    )
     await state.clear()
-    await m.answer("✅ Номер отправлен", reply_markup=admin_menu())
+    await m.answer("✅ Номер отправлен клиенту", reply_markup=admin_menu())
 
 # --- give code ---
 @dp.callback_query(F.data.startswith("a_give_code:"))
